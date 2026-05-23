@@ -3,9 +3,9 @@ import type { Session } from '@supabase/supabase-js'
 import './App.css'
 import {
   estimateMealFromText,
-  isUsdaConfigured,
+  isGroqConfigured,
   type MacroTotals,
-  type ParsedMealItem,
+  type MealItem,
 } from './mealParser'
 import { isSupabaseConfigured, supabase } from './supabase'
 
@@ -99,7 +99,7 @@ function App() {
   const [customFoods, setCustomFoods] = useState<CustomFood[]>([])
   const [mealText, setMealText] = useState('')
   const [mealEstimate, setMealEstimate] = useState<{
-    items: ParsedMealItem[]
+    items: MealItem[]
     totals: MacroTotals
   } | null>(null)
   const [customFoodDraft, setCustomFoodDraft] = useState({
@@ -111,7 +111,10 @@ function App() {
     carbs: '',
     fat: '',
   })
+  const [currentPage, setCurrentPage] = useState<'today' | 'history' | 'foods' | 'settings'>('today')
   const [authForm, setAuthForm] = useState({ email: '', password: '' })
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin')
+  const [signUpDone, setSignUpDone] = useState(false)
   const [loading, setLoading] = useState({
     auth: false,
     app: false,
@@ -362,6 +365,27 @@ function App() {
     setLoading((current) => ({ ...current, auth: false }))
   }
 
+const handleSignUp = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+
+    setLoading((current) => ({ ...current, auth: true }))
+    setError(null)
+
+    const { error: authError } = await supabase.auth.signUp({
+      email: authForm.email,
+      password: authForm.password,
+    })
+
+    if (authError) {
+      setError(authError.message)
+    } else {
+      setSignUpDone(true)
+    }
+
+    setLoading((current) => ({ ...current, auth: false }))
+  }
+
   const handleSignOut = async () => {
     if (!supabase) return
     await supabase.auth.signOut()
@@ -415,16 +439,16 @@ function App() {
     const payload = mealEstimate.items.map((item) => ({
       user_id: session.user.id,
       entry_date: selectedDate,
-      name: item.match.name,
-      serving: item.match.serving,
+      name: item.name,
+      serving: item.serving,
       quantity: item.quantity,
-      calories: item.macros.calories,
-      protein: item.macros.protein,
-      carbs: item.macros.carbs,
-      fat: item.macros.fat,
-      note: `${item.label} | ${item.servingHint}`,
-      source: `USDA ${item.match.dataType}`,
-      source_ref: item.match.id,
+      calories: item.calories,
+      protein: item.protein,
+      carbs: item.carbs,
+      fat: item.fat,
+      note: item.label,
+      source: 'Gemini AI',
+      source_ref: '',
     }))
 
     const { error: insertError } = await supabase.from('food_entries').insert(payload)
@@ -576,8 +600,7 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
             <p className="eyebrow">Atlas Nutrition</p>
             <h1>Private nutrition tracking, ready for the web.</h1>
             <p className="hero-text">
-              Sign in with the account you create in Supabase. After that, all logs live in
-              the cloud and work from anywhere.
+              Track your meals and macros from anywhere. Your data lives in the cloud.
             </p>
           </div>
         </section>
@@ -585,39 +608,60 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
         <section className="card auth-card stack">
           <div className="section-head">
             <div>
-              <p className="section-label">Sign In</p>
-              <h2>Enter your email and password</h2>
+              <p className="section-label">{authMode === 'signin' ? 'Sign In' : 'Create Account'}</p>
+              <h2>{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
             </div>
-            <span className="section-chip">{isUsdaConfigured ? 'USDA ready' : 'USDA missing'}</span>
+            <span className="section-chip">{isGroqConfigured ? 'Groq AI ready' : 'Groq missing'}</span>
           </div>
 
           {error ? <section className="error-banner">{error}</section> : null}
 
-          <form className="auth-form" onSubmit={handleSignIn}>
-            <label>
-              Email
-              <input
-                type="email"
-                value={authForm.email}
-                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                value={authForm.password}
-                onChange={(event) =>
-                  setAuthForm((current) => ({ ...current, password: event.target.value }))
-                }
-                required
-              />
-            </label>
-            <button type="submit" className="primary-button cool">
-              {loading.auth ? 'Signing in...' : 'Sign in'}
-            </button>
-          </form>
+          {signUpDone ? (
+            <div className="callout-panel gradient-gold">
+              <p>Account created! Check your email to confirm it, then sign in below.</p>
+            </div>
+          ) : (
+            <form className="auth-form" onSubmit={authMode === 'signin' ? handleSignIn : handleSignUp}>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                  required
+                />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(event) =>
+                    setAuthForm((current) => ({ ...current, password: event.target.value }))
+                  }
+                  required
+                  minLength={6}
+                />
+              </label>
+              <button type="submit" className="primary-button cool">
+                {loading.auth
+                  ? authMode === 'signin' ? 'Signing in...' : 'Creating account...'
+                  : authMode === 'signin' ? 'Sign in' : 'Create account'}
+              </button>
+            </form>
+          )}
+
+<button
+            type="button"
+            className="ghost-button"
+            onClick={() => {
+              setAuthMode((current) => (current === 'signin' ? 'signup' : 'signin'))
+              setError(null)
+              setSignUpDone(false)
+            }}
+          >
+            {authMode === 'signin' ? "Don't have an account? Register" : 'Already have an account? Sign in'}
+          </button>
         </section>
       </main>
     )
@@ -625,426 +669,395 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
 
   return (
     <main className="app-shell">
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <p className="eyebrow">Atlas Nutrition</p>
-          <h1>Log the meal. Keep the data forever.</h1>
-          <p className="hero-text">
-            A production-ready personal tracker with cloud persistence, private sign-in,
-            and a parser-first meal flow.
-          </p>
-        </div>
 
-        <div className="hero-ribbon" aria-hidden="true">
-          <span>Supabase</span>
-          <span>USDA</span>
-          <span>PWA</span>
-          <span>Vercel-ready</span>
-        </div>
+      {/* TODAY */}
+      {currentPage === 'today' && (
+        <>
+          <section className="hero-panel">
+            <div className="hero-copy">
+              <p className="eyebrow">Atlas Nutrition</p>
+              <h1>Log the meal. Keep the data forever.</h1>
+            </div>
+            <div className="hero-stats">
+              <div className="hero-stat sunset">
+                <span>Selected day</span>
+                <strong>{formatDateLabel(selectedDate)}</strong>
+              </div>
+              <div className="hero-stat aurora">
+                <span>Entries today</span>
+                <strong>{entries.length}</strong>
+              </div>
+              <div className="hero-stat prism">
+                <span>Calories</span>
+                <strong>{formatWhole(totals.calories)} kcal</strong>
+              </div>
+            </div>
+          </section>
 
-        <div className="hero-stats">
-          <div className="hero-stat sunset">
-            <span>Selected day</span>
-            <strong>{formatDateLabel(selectedDate)}</strong>
-          </div>
-          <div className="hero-stat aurora">
-            <span>Entries saved</span>
-            <strong>{entries.length}</strong>
-          </div>
-          <div className="hero-stat prism">
-            <span>Signed in as</span>
-            <strong>{session.user.email}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="card spotlight-card">
-        <div className="spotlight-header">
-          <div>
-            <p className="section-label">Cloud Status</p>
-            <h2>Connected and persistent</h2>
-          </div>
-          <div className="top-actions">
-            <label className="date-picker">
-              <span>Journal day</span>
+          <section className="card spotlight-card">
+            <div className="spotlight-header">
+              <div>
+                <p className="section-label">Journal</p>
+                <h2>{formatDateLabel(selectedDate)}</h2>
+              </div>
               <input
                 type="date"
+                className="date-input"
                 value={selectedDate}
                 onChange={(event) => setSelectedDate(event.target.value)}
               />
-            </label>
-            <button type="button" className="ghost-button" onClick={handleSignOut}>
-              Sign out
-            </button>
-          </div>
-        </div>
-
-        <div className="readiness-strip">
-          <div className="readiness-pill">
-            <span>Database</span>
-            <strong>Supabase</strong>
-          </div>
-          <div className="readiness-pill">
-            <span>Meal parser</span>
-            <strong>Free local parser</strong>
-          </div>
-          <div className="readiness-pill">
-            <span>Food source</span>
-            <strong>{isUsdaConfigured ? 'USDA connected' : 'USDA missing'}</strong>
-          </div>
-        </div>
-
-        <div className="recent-days">
-          {recentDays.map((day) => (
-            <button
-              key={day.date}
-              type="button"
-              className={selectedDate === day.date ? 'day-pill active' : 'day-pill'}
-              onClick={() => setSelectedDate(day.date)}
-            >
-              <span>{formatDateLabel(day.date)}</span>
-              <strong>{formatWhole(day.calories)} kcal</strong>
-              <small>{day.entryCount} entries</small>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="macro-grid">
-        {macroCards.map((macro) => {
-          const total = totals[macro.key]
-          const target = profile[macro.targetKey]
-          const progress = target > 0 ? Math.min((total / target) * 100, 100) : 0
-
-          return (
-            <article key={macro.key} className={`card macro-card ${macro.tone}`}>
-              <p className="section-label">{macro.label}</p>
-              <div className="macro-value">
-                <strong>{formatWhole(total)}</strong>
-                <span>{macro.unit}</span>
-              </div>
-              <div className="meter">
-                <div className="meter-fill" style={{ width: `${progress}%` }} />
-              </div>
-              <p className="meter-copy">
-                Goal {formatWhole(target)} {macro.unit}
-              </p>
-            </article>
-          )
-        })}
-      </section>
-
-      {error ? <section className="error-banner">{error}</section> : null}
-
-      <section className="builder-grid single">
-        <article className="card vivid-card stack">
-          <div className="section-head">
-            <div>
-              <p className="section-label">Smart Meal Parser</p>
-              <h2>Type what you ate naturally</h2>
             </div>
-            <span className="section-chip">{loading.estimate ? 'Estimating...' : 'Ready'}</span>
-          </div>
+            <div className="recent-days">
+              {recentDays.map((day) => (
+                <button
+                  key={day.date}
+                  type="button"
+                  className={selectedDate === day.date ? 'day-pill active' : 'day-pill'}
+                  onClick={() => setSelectedDate(day.date)}
+                >
+                  <span>{formatDateLabel(day.date)}</span>
+                  <strong>{formatWhole(day.calories)} kcal</strong>
+                  <small>{day.entryCount} entries</small>
+                </button>
+              ))}
+            </div>
+          </section>
 
-          <textarea
-            className="meal-input"
-            value={mealText}
-            onChange={(event) => setMealText(event.target.value)}
-            placeholder="Example: 2 eggs, 1 banana, and 1 cup Greek yogurt"
-          />
-
-          <div className="button-row">
-            <button type="button" className="primary-button hot" onClick={estimateMeal}>
-              Estimate this meal
-            </button>
-            {mealEstimate ? (
-              <button type="button" className="primary-button cool" onClick={saveEstimate}>
-                Save estimate to {formatDateLabel(selectedDate)}
-              </button>
-            ) : null}
-          </div>
-
-          {mealEstimate ? (
-            <div className="estimate-card">
-              <div className="estimate-total">
-                <strong>{formatWhole(mealEstimate.totals.calories)} kcal</strong>
-                <span>
-                  {formatWhole(mealEstimate.totals.protein)}P |{' '}
-                  {formatWhole(mealEstimate.totals.carbs)}C |{' '}
-                  {formatWhole(mealEstimate.totals.fat)}F
-                </span>
-              </div>
-
-              <div className="estimate-list">
-                {mealEstimate.items.map((item) => (
-                  <div key={`${item.label}-${item.match.id}`} className="estimate-item">
-                    <div>
-                      <strong>{item.label}</strong>
-                      <span>
-                        Matched to {item.match.name} | {item.quantity} x {item.match.serving}
-                      </span>
-                    </div>
-                    <small>
-                      {formatWhole(item.macros.calories)} kcal | {formatWhole(item.macros.protein)}P
-                    </small>
+          <section className="macro-grid">
+            {macroCards.map((macro) => {
+              const total = totals[macro.key]
+              const target = profile[macro.targetKey]
+              const progress = target > 0 ? Math.min((total / target) * 100, 100) : 0
+              return (
+                <article key={macro.key} className={`card macro-card ${macro.tone}`}>
+                  <p className="section-label">{macro.label}</p>
+                  <div className="macro-value">
+                    <strong>{formatWhole(total)}</strong>
+                    <span>{macro.unit}</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="callout-panel gradient-lilac">
-              <p>
-                The parser is the main input now. USDA stays in the background only as the
-                nutrition source.
-              </p>
-            </div>
-          )}
-        </article>
-      </section>
-
-      <section className="dashboard-grid">
-        <article className="card glass-card stack">
-          <div className="section-head">
-            <div>
-              <p className="section-label">Daily Log</p>
-              <h2>Saved in the cloud</h2>
-            </div>
-            <span className="section-chip strong">{loading.app ? 'Loading...' : 'Supabase'}</span>
-          </div>
-
-          <div className="log-list">
-            {entries.length === 0 ? (
-              <div className="empty-state">
-                No entries for this day yet. Once you save a meal, it is stored in the cloud.
-              </div>
-            ) : (
-              entries.map((entry) => (
-                <div key={entry.id} className="log-item">
-                  <div className="log-main">
-                    <div>
-                      <strong>{entry.name}</strong>
-                      <span>
-                        {entry.quantity} x {entry.serving}
-                      </span>
-                      <p>{entry.source}</p>
-                    </div>
-                    <button type="button" className="ghost-button" onClick={() => removeEntry(entry.id)}>
-                      Remove
-                    </button>
+                  <div className="meter">
+                    <div className="meter-fill" style={{ width: `${progress}%` }} />
                   </div>
-                  <div className="log-macros">
-                    <span>{formatWhole(entry.calories)} kcal</span>
-                    <span>{formatWhole(entry.protein)}P</span>
-                    <span>{formatWhole(entry.carbs)}C</span>
-                    <span>{formatWhole(entry.fat)}F</span>
-                  </div>
+                  <p className="meter-copy">Goal {formatWhole(target)} {macro.unit}</p>
+                </article>
+              )
+            })}
+          </section>
+
+          {error ? <section className="error-banner">{error}</section> : null}
+
+          <section className="page-sections">
+            <article className="card vivid-card stack">
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Smart Meal Parser</p>
+                  <h2>Type what you ate</h2>
                 </div>
-              ))
-            )}
-          </div>
-        </article>
-
-        <article className="card prismatic-card stack">
-          <div className="section-head">
-            <div>
-              <p className="section-label">Monthly View</p>
-              <h2>Last 30 days</h2>
-            </div>
-          </div>
-
-          <div className="history-list">
-            {history.length === 0 ? (
-              <div className="empty-state">Your 30-day trend appears here once entries are saved.</div>
-            ) : (
-              history.map((day) => (
-                <div key={day.date} className="history-bar">
-                  <div className="history-text">
-                    <strong>{formatDateLabel(day.date)}</strong>
-                    <span>{day.entryCount} entries</span>
-                  </div>
-                  <div className="history-meter">
-                    <div
-                      className="history-fill"
-                      style={{
-                        width: `${Math.min((day.calories / Math.max(profile.caloriesTarget, 1)) * 100, 100)}%`,
-                      }}
-                    />
-                  </div>
-                  <small>{formatWhole(day.calories)} kcal</small>
-                </div>
-              ))
-            )}
-          </div>
-        </article>
-      </section>
-
-      <section className="weekly-average-grid">
-        <article className="card weekly-card stack">
-          <div className="section-head">
-            <div>
-              <p className="section-label">Weekly Average</p>
-              <h2>Trailing 7-day daily average</h2>
-            </div>
-            <span className="section-chip">
-              {weeklyAverage.activeDays} active day{weeklyAverage.activeDays === 1 ? '' : 's'}
-            </span>
-          </div>
-
-          <div className="weekly-stats">
-            <div className="weekly-stat amber">
-              <span>Calories</span>
-              <strong>{formatWhole(weeklyAverage.calories)}</strong>
-              <small>kcal per day</small>
-            </div>
-            <div className="weekly-stat mint">
-              <span>Protein</span>
-              <strong>{formatWhole(weeklyAverage.protein)}</strong>
-              <small>g per day</small>
-            </div>
-            <div className="weekly-stat sky">
-              <span>Carbs</span>
-              <strong>{formatWhole(weeklyAverage.carbs)}</strong>
-              <small>g per day</small>
-            </div>
-            <div className="weekly-stat rose">
-              <span>Fat</span>
-              <strong>{formatWhole(weeklyAverage.fat)}</strong>
-              <small>g per day</small>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section className="bottom-grid">
-        <article className="card candy-card stack">
-          <div className="section-head">
-            <div>
-              <p className="section-label">Custom Foods</p>
-              <h2>Keep homemade staples too</h2>
-            </div>
-          </div>
-
-          <div className="custom-grid">
-            <label>
-              Food name
-              <input
-                type="text"
-                value={customFoodDraft.name}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, name: event.target.value }))}
+                <span className="section-chip">{loading.estimate ? 'Estimating...' : 'Ready'}</span>
+              </div>
+              <textarea
+                className="meal-input"
+                value={mealText}
+                onChange={(event) => setMealText(event.target.value)}
+                placeholder="e.g. 2 eggs, banana, oatmeal   or   big mac and fries   or   grilled chicken with rice"
               />
-            </label>
-            <label>
-              Serving
-              <input
-                type="text"
-                value={customFoodDraft.serving}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, serving: event.target.value }))}
-              />
-            </label>
-            <label>
-              Category
-              <input
-                type="text"
-                value={customFoodDraft.category}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, category: event.target.value }))}
-              />
-            </label>
-            <label>
-              Calories
-              <input
-                type="number"
-                value={customFoodDraft.calories}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, calories: event.target.value }))}
-              />
-            </label>
-            <label>
-              Protein
-              <input
-                type="number"
-                value={customFoodDraft.protein}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, protein: event.target.value }))}
-              />
-            </label>
-            <label>
-              Carbs
-              <input
-                type="number"
-                value={customFoodDraft.carbs}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, carbs: event.target.value }))}
-              />
-            </label>
-            <label>
-              Fat
-              <input
-                type="number"
-                value={customFoodDraft.fat}
-                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, fat: event.target.value }))}
-              />
-            </label>
-          </div>
-
-          <button type="button" className="primary-button berry" onClick={addCustomFood}>
-            {loading.saveCustomFood ? 'Saving...' : 'Save custom food'}
-          </button>
-
-          <div className="custom-list">
-            {customFoods.length > 0 ? (
-              customFoods.map((food) => (
-                <div key={food.id} className="custom-item">
-                  <div>
-                    <strong>{food.name}</strong>
+              <div className="button-row">
+                <button type="button" className="primary-button hot" onClick={estimateMeal}>
+                  Estimate this meal
+                </button>
+                {mealEstimate ? (
+                  <button type="button" className="primary-button cool" onClick={saveEstimate}>
+                    Save to {formatDateLabel(selectedDate)}
+                  </button>
+                ) : null}
+              </div>
+              {mealEstimate ? (
+                <div className="estimate-card">
+                  <div className="estimate-total">
+                    <strong>{formatWhole(mealEstimate.totals.calories)} kcal</strong>
                     <span>
-                      {food.category} | {food.serving}
+                      {formatWhole(mealEstimate.totals.protein)}P |{' '}
+                      {formatWhole(mealEstimate.totals.carbs)}C |{' '}
+                      {formatWhole(mealEstimate.totals.fat)}F
                     </span>
                   </div>
-                  <button type="button" className="ghost-button" onClick={() => addCustomFoodEntry(food)}>
-                    Add to day
-                  </button>
+                  <div className="estimate-list">
+                    {mealEstimate.items.map((item) => (
+                      <div key={`${item.label}-${item.name}`} className="estimate-item">
+                        <div>
+                          <strong>{item.label}</strong>
+                          <span>{item.name} | {item.quantity} x {item.serving}</span>
+                        </div>
+                        <small>{formatWhole(item.calories)} kcal | {formatWhole(item.protein)}P</small>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))
-            ) : (
-              <div className="empty-state small">No custom foods saved yet.</div>
-            )}
-          </div>
-        </article>
+              ) : (
+                <div className="callout-panel gradient-lilac">
+                  <p>Type naturally — Groq AI understands your meal and estimates the macros.</p>
+                </div>
+              )}
+            </article>
 
-        <article className="card settings-card stack">
-          <div className="section-head">
-            <div>
-              <p className="section-label">Macro Targets</p>
-              <h2>Stored in your profile</h2>
-            </div>
-            <span className="section-chip">{loading.saveTargets ? 'Saving...' : 'Auto-saved'}</span>
-          </div>
+            <article className="card glass-card stack">
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Daily Log</p>
+                  <h2>Saved in the cloud</h2>
+                </div>
+                <span className="section-chip strong">{loading.app ? 'Loading...' : 'Supabase'}</span>
+              </div>
+              <div className="log-list">
+                {entries.length === 0 ? (
+                  <div className="empty-state">No entries for this day yet.</div>
+                ) : (
+                  entries.map((entry) => (
+                    <div key={entry.id} className="log-item">
+                      <div className="log-main">
+                        <div>
+                          <strong>{entry.name}</strong>
+                          <span>{entry.quantity} x {entry.serving}</span>
+                          <p>{entry.source}</p>
+                        </div>
+                        <button type="button" className="ghost-button" onClick={() => removeEntry(entry.id)}>
+                          Remove
+                        </button>
+                      </div>
+                      <div className="log-macros">
+                        <span>{formatWhole(entry.calories)} kcal</span>
+                        <span>{formatWhole(entry.protein)}P</span>
+                        <span>{formatWhole(entry.carbs)}C</span>
+                        <span>{formatWhole(entry.fat)}F</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+          </section>
+        </>
+      )}
 
-          <div className="targets-grid">
-            <label>
-              Calories
-              <input type="number" value={profile.caloriesTarget} onChange={(event) => void updateTarget('caloriesTarget', event)} />
-            </label>
-            <label>
-              Protein
-              <input type="number" value={profile.proteinTarget} onChange={(event) => void updateTarget('proteinTarget', event)} />
-            </label>
-            <label>
-              Carbs
-              <input type="number" value={profile.carbsTarget} onChange={(event) => void updateTarget('carbsTarget', event)} />
-            </label>
-            <label>
-              Fat
-              <input type="number" value={profile.fatTarget} onChange={(event) => void updateTarget('fatTarget', event)} />
-            </label>
+      {/* HISTORY */}
+      {currentPage === 'history' && (
+        <>
+          <div className="page-header">
+            <p className="eyebrow">Atlas Nutrition</p>
+            <h1>History</h1>
           </div>
+          <section className="page-sections">
+            <article className="card weekly-card stack">
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Weekly Average</p>
+                  <h2>Trailing 7-day average</h2>
+                </div>
+                <span className="section-chip">
+                  {weeklyAverage.activeDays} active day{weeklyAverage.activeDays === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="weekly-stats">
+                <div className="weekly-stat amber">
+                  <span>Calories</span>
+                  <strong>{formatWhole(weeklyAverage.calories)}</strong>
+                  <small>kcal / day</small>
+                </div>
+                <div className="weekly-stat mint">
+                  <span>Protein</span>
+                  <strong>{formatWhole(weeklyAverage.protein)}</strong>
+                  <small>g / day</small>
+                </div>
+                <div className="weekly-stat sky">
+                  <span>Carbs</span>
+                  <strong>{formatWhole(weeklyAverage.carbs)}</strong>
+                  <small>g / day</small>
+                </div>
+                <div className="weekly-stat rose">
+                  <span>Fat</span>
+                  <strong>{formatWhole(weeklyAverage.fat)}</strong>
+                  <small>g / day</small>
+                </div>
+              </div>
+            </article>
 
-          <div className="callout-panel gradient-gold">
-            <p>Your food history now lives in Supabase instead of device-only local storage.</p>
-          </div>
+            <article className="card prismatic-card stack">
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Monthly View</p>
+                  <h2>Last 30 days</h2>
+                </div>
+              </div>
+              <div className="history-list">
+                {history.length === 0 ? (
+                  <div className="empty-state">Your 30-day trend appears here once entries are saved.</div>
+                ) : (
+                  history.map((day) => (
+                    <div key={day.date} className="history-bar">
+                      <div className="history-text">
+                        <strong>{formatDateLabel(day.date)}</strong>
+                        <span>{day.entryCount} entries</span>
+                      </div>
+                      <div className="history-meter">
+                        <div
+                          className="history-fill"
+                          style={{ width: `${Math.min((day.calories / Math.max(profile.caloriesTarget, 1)) * 100, 100)}%` }}
+                        />
+                      </div>
+                      <small>{formatWhole(day.calories)} kcal</small>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+          </section>
+        </>
+      )}
 
-          <div className="callout-panel gradient-blue">
-            <p>This architecture is what makes a free web deployment realistic and persistent.</p>
+      {/* FOODS */}
+      {currentPage === 'foods' && (
+        <>
+          <div className="page-header">
+            <p className="eyebrow">Atlas Nutrition</p>
+            <h1>Custom Foods</h1>
           </div>
-        </article>
-      </section>
+          <section className="page-sections">
+            <article className="card candy-card stack">
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Add Food</p>
+                  <h2>Save homemade staples</h2>
+                </div>
+              </div>
+              <div className="custom-grid">
+                <label>Food name
+                  <input type="text" value={customFoodDraft.name} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, name: event.target.value }))} />
+                </label>
+                <label>Serving
+                  <input type="text" value={customFoodDraft.serving} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, serving: event.target.value }))} />
+                </label>
+                <label>Category
+                  <input type="text" value={customFoodDraft.category} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, category: event.target.value }))} />
+                </label>
+                <label>Calories
+                  <input type="number" value={customFoodDraft.calories} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, calories: event.target.value }))} />
+                </label>
+                <label>Protein
+                  <input type="number" value={customFoodDraft.protein} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, protein: event.target.value }))} />
+                </label>
+                <label>Carbs
+                  <input type="number" value={customFoodDraft.carbs} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, carbs: event.target.value }))} />
+                </label>
+                <label>Fat
+                  <input type="number" value={customFoodDraft.fat} onChange={(event) => setCustomFoodDraft((c) => ({ ...c, fat: event.target.value }))} />
+                </label>
+              </div>
+              <button type="button" className="primary-button berry" onClick={addCustomFood}>
+                {loading.saveCustomFood ? 'Saving...' : 'Save custom food'}
+              </button>
+              {error ? <section className="error-banner">{error}</section> : null}
+              <div className="custom-list">
+                {customFoods.length > 0 ? (
+                  customFoods.map((food) => (
+                    <div key={food.id} className="custom-item">
+                      <div>
+                        <strong>{food.name}</strong>
+                        <span>{food.category} | {food.serving}</span>
+                      </div>
+                      <button type="button" className="ghost-button" onClick={() => addCustomFoodEntry(food)}>
+                        Add to day
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="empty-state small">No custom foods saved yet.</div>
+                )}
+              </div>
+            </article>
+          </section>
+        </>
+      )}
+
+      {/* SETTINGS */}
+      {currentPage === 'settings' && (
+        <>
+          <div className="page-header">
+            <p className="eyebrow">Atlas Nutrition</p>
+            <h1>Settings</h1>
+          </div>
+          <section className="page-sections">
+            <article className="card settings-card stack">
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Macro Targets</p>
+                  <h2>Daily goals</h2>
+                </div>
+                <span className="section-chip">{loading.saveTargets ? 'Saving...' : 'Auto-saved'}</span>
+              </div>
+              <div className="targets-grid">
+                <label>Calories
+                  <input type="number" value={profile.caloriesTarget} onChange={(event) => void updateTarget('caloriesTarget', event)} />
+                </label>
+                <label>Protein (g)
+                  <input type="number" value={profile.proteinTarget} onChange={(event) => void updateTarget('proteinTarget', event)} />
+                </label>
+                <label>Carbs (g)
+                  <input type="number" value={profile.carbsTarget} onChange={(event) => void updateTarget('carbsTarget', event)} />
+                </label>
+                <label>Fat (g)
+                  <input type="number" value={profile.fatTarget} onChange={(event) => void updateTarget('fatTarget', event)} />
+                </label>
+              </div>
+            </article>
+
+            <article className="card stack" style={{ padding: '22px' }}>
+              <div className="section-head">
+                <div>
+                  <p className="section-label">Account</p>
+                  <h2>{session.user.email}</h2>
+                </div>
+              </div>
+              <button type="button" className="primary-button cool" onClick={handleSignOut}>
+                Sign out
+              </button>
+            </article>
+          </section>
+        </>
+      )}
+
+      {/* BOTTOM NAV */}
+      <nav className="bottom-nav">
+        <button type="button" className={`nav-item${currentPage === 'today' ? ' active' : ''}`} onClick={() => setCurrentPage('today')}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          <span>Today</span>
+        </button>
+        <button type="button" className={`nav-item${currentPage === 'history' ? ' active' : ''}`} onClick={() => setCurrentPage('history')}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          <span>History</span>
+        </button>
+        <button type="button" className={`nav-item${currentPage === 'foods' ? ' active' : ''}`} onClick={() => setCurrentPage('foods')}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/>
+            <path d="M7 2v20"/>
+            <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>
+          </svg>
+          <span>Foods</span>
+        </button>
+        <button type="button" className={`nav-item${currentPage === 'settings' ? ' active' : ''}`} onClick={() => setCurrentPage('settings')}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </nav>
     </main>
   )
 }
