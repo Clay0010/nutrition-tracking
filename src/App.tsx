@@ -447,7 +447,7 @@ const handleSignUp = async (event: FormEvent) => {
       carbs: item.carbs,
       fat: item.fat,
       note: item.label,
-      source: 'Gemini AI',
+      source: 'Groq AI',
       source_ref: '',
     }))
 
@@ -553,10 +553,10 @@ const handleSignUp = async (event: FormEvent) => {
         <section className="hero-panel">
           <div className="hero-copy">
             <p className="eyebrow">Atlas Nutrition</p>
-            <h1>Production setup is waiting on Supabase.</h1>
+            <h1>Almost ready — one step remaining.</h1>
             <p className="hero-text">
-              The free deployable version uses Supabase for persistent storage and auth.
-              Add your Supabase project URL and anon key in the environment variables first.
+              Connect your Supabase project to enable authentication and data storage.
+              Add the following environment variables and redeploy.
             </p>
           </div>
         </section>
@@ -564,15 +564,15 @@ const handleSignUp = async (event: FormEvent) => {
         <section className="card setup-card stack">
           <div className="section-head">
             <div>
-              <p className="section-label">Missing Config</p>
-              <h2>Required environment variables</h2>
+              <p className="section-label">Setup Required</p>
+              <h2>Add your environment variables</h2>
             </div>
           </div>
 
           <div className="code-card">
             <pre>{`VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
-VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
+VITE_GROQ_API_KEY=your_groq_api_key_here`}</pre>
           </div>
         </section>
       </main>
@@ -585,7 +585,7 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
         <section className="hero-panel">
           <div className="hero-copy">
             <p className="eyebrow">Atlas Nutrition</p>
-            <h1>Starting your nutrition dashboard.</h1>
+            <h1>Loading your nutrition data...</h1>
           </div>
         </section>
       </main>
@@ -598,9 +598,10 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
         <section className="hero-panel">
           <div className="hero-copy">
             <p className="eyebrow">Atlas Nutrition</p>
-            <h1>Private nutrition tracking, ready for the web.</h1>
+            <h1>Track what you eat. Reach your goals.</h1>
             <p className="hero-text">
-              Track your meals and macros from anywhere. Your data lives in the cloud.
+              Log meals with AI, monitor your macros daily, and review your progress over time.
+              Your data is securely stored and synced across devices.
             </p>
           </div>
         </section>
@@ -609,9 +610,9 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
           <div className="section-head">
             <div>
               <p className="section-label">{authMode === 'signin' ? 'Sign In' : 'Create Account'}</p>
-              <h2>{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
+              <h2>{authMode === 'signin' ? 'Welcome back' : 'Get started for free'}</h2>
             </div>
-            <span className="section-chip">{isGroqConfigured ? 'Groq AI ready' : 'Groq missing'}</span>
+            <span className="section-chip">{isGroqConfigured ? 'AI Ready' : 'AI Offline'}</span>
           </div>
 
           {error ? <section className="error-banner">{error}</section> : null}
@@ -660,7 +661,7 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
               setSignUpDone(false)
             }}
           >
-            {authMode === 'signin' ? "Don't have an account? Register" : 'Already have an account? Sign in'}
+            {authMode === 'signin' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
           </button>
         </section>
       </main>
@@ -676,15 +677,15 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
           <section className="hero-panel">
             <div className="hero-copy">
               <p className="eyebrow">Atlas Nutrition</p>
-              <h1>Log the meal. Keep the data forever.</h1>
+              <h1>Here's how your day is going.</h1>
             </div>
             <div className="hero-stats">
               <div className="hero-stat sunset">
-                <span>Selected day</span>
+                <span>Date</span>
                 <strong>{formatDateLabel(selectedDate)}</strong>
               </div>
               <div className="hero-stat aurora">
-                <span>Entries today</span>
+                <span>Meals logged</span>
                 <strong>{entries.length}</strong>
               </div>
               <div className="hero-stat prism">
@@ -750,24 +751,24 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
             <article className="card vivid-card stack">
               <div className="section-head">
                 <div>
-                  <p className="section-label">Smart Meal Parser</p>
-                  <h2>Type what you ate</h2>
+                  <p className="section-label">AI Meal Parser</p>
+                  <h2>Describe what you ate</h2>
                 </div>
-                <span className="section-chip">{loading.estimate ? 'Estimating...' : 'Ready'}</span>
+                <span className="section-chip">{loading.estimate ? 'Analyzing...' : 'AI Ready'}</span>
               </div>
               <textarea
                 className="meal-input"
                 value={mealText}
                 onChange={(event) => setMealText(event.target.value)}
-                placeholder="e.g. 2 eggs, banana, oatmeal   or   big mac and fries   or   grilled chicken with rice"
+                placeholder="e.g. two scrambled eggs with toast — or — chicken burger and fries — or — bowl of oatmeal with a banana"
               />
               <div className="button-row">
                 <button type="button" className="primary-button hot" onClick={estimateMeal}>
-                  Estimate this meal
+                  Analyze meal
                 </button>
                 {mealEstimate ? (
                   <button type="button" className="primary-button cool" onClick={saveEstimate}>
-                    Save to {formatDateLabel(selectedDate)}
+                    Log to {formatDateLabel(selectedDate)}
                   </button>
                 ) : null}
               </div>
@@ -795,7 +796,7 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
                 </div>
               ) : (
                 <div className="callout-panel gradient-lilac">
-                  <p>Type naturally — Groq AI understands your meal and estimates the macros.</p>
+                  <p>Describe your meal in plain English — AI will identify each food and estimate the macros automatically.</p>
                 </div>
               )}
             </article>
@@ -803,14 +804,14 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
             <article className="card glass-card stack">
               <div className="section-head">
                 <div>
-                  <p className="section-label">Daily Log</p>
-                  <h2>Saved in the cloud</h2>
+                  <p className="section-label">Today's Log</p>
+                  <h2>Meals logged</h2>
                 </div>
-                <span className="section-chip strong">{loading.app ? 'Loading...' : 'Supabase'}</span>
+                <span className="section-chip strong">{loading.app ? 'Syncing...' : 'Synced'}</span>
               </div>
               <div className="log-list">
                 {entries.length === 0 ? (
-                  <div className="empty-state">No entries for this day yet.</div>
+                  <div className="empty-state">No meals logged for this day yet.</div>
                 ) : (
                   entries.map((entry) => (
                     <div key={entry.id} className="log-item">
@@ -844,14 +845,14 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
         <>
           <div className="page-header">
             <p className="eyebrow">Atlas Nutrition</p>
-            <h1>History</h1>
+            <h1>Progress</h1>
           </div>
           <section className="page-sections">
             <article className="card weekly-card stack">
               <div className="section-head">
                 <div>
-                  <p className="section-label">Weekly Average</p>
-                  <h2>Trailing 7-day average</h2>
+                  <p className="section-label">This Week</p>
+                  <h2>7-day average</h2>
                 </div>
                 <span className="section-chip">
                   {weeklyAverage.activeDays} active day{weeklyAverage.activeDays === 1 ? '' : 's'}
@@ -884,13 +885,13 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
             <article className="card prismatic-card stack">
               <div className="section-head">
                 <div>
-                  <p className="section-label">Monthly View</p>
-                  <h2>Last 30 days</h2>
+                  <p className="section-label">Past 30 Days</p>
+                  <h2>Daily calorie intake</h2>
                 </div>
               </div>
               <div className="history-list">
                 {history.length === 0 ? (
-                  <div className="empty-state">Your 30-day trend appears here once entries are saved.</div>
+                  <div className="empty-state">No entries in the last 30 days. Start logging meals to see your progress here.</div>
                 ) : (
                   history.map((day) => (
                     <div key={day.date} className="history-bar">
@@ -919,14 +920,14 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
         <>
           <div className="page-header">
             <p className="eyebrow">Atlas Nutrition</p>
-            <h1>Custom Foods</h1>
+            <h1>My Foods</h1>
           </div>
           <section className="page-sections">
             <article className="card candy-card stack">
               <div className="section-head">
                 <div>
-                  <p className="section-label">Add Food</p>
-                  <h2>Save homemade staples</h2>
+                  <p className="section-label">Add Custom Food</p>
+                  <h2>Save foods you eat regularly</h2>
                 </div>
               </div>
               <div className="custom-grid">
@@ -965,12 +966,12 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
                         <span>{food.category} | {food.serving}</span>
                       </div>
                       <button type="button" className="ghost-button" onClick={() => addCustomFoodEntry(food)}>
-                        Add to day
+                        Log today
                       </button>
                     </div>
                   ))
                 ) : (
-                  <div className="empty-state small">No custom foods saved yet.</div>
+                  <div className="empty-state small">No custom foods saved yet. Add foods you eat regularly to log them instantly.</div>
                 )}
               </div>
             </article>
@@ -989,10 +990,10 @@ VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
             <article className="card settings-card stack">
               <div className="section-head">
                 <div>
-                  <p className="section-label">Macro Targets</p>
-                  <h2>Daily goals</h2>
+                  <p className="section-label">Daily Targets</p>
+                  <h2>Nutrition goals</h2>
                 </div>
-                <span className="section-chip">{loading.saveTargets ? 'Saving...' : 'Auto-saved'}</span>
+                <span className="section-chip">{loading.saveTargets ? 'Saving...' : 'Saved'}</span>
               </div>
               <div className="targets-grid">
                 <label>Calories
