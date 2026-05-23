@@ -131,7 +131,7 @@
 
 .spotlight-card {
   margin-top: 18px;
-  padding-bottom: 28px;
+  padding: 26px 26px 32px;
   background:
     radial-gradient(circle at top left, rgba(255, 211, 128, 0.22), transparent 32%),
     linear-gradient(180deg, rgba(255, 250, 243, 0.94), rgba(241, 246, 252, 0.92));
@@ -230,6 +230,7 @@
 .recent-days {
   grid-template-columns: repeat(7, minmax(120px, 1fr));
   overflow-x: auto;
+  margin-top: 18px;
   padding-bottom: 4px;
 }
 
