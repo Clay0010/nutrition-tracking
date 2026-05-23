@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\ahmed\\\\Desktop\\\\nutrition-tracker\" -Force -Recurse | ForEach-Object { $_.FullName } | Sort-Object)"
+    ]
+  }
+}

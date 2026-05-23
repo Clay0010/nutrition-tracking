@@ -1,0 +1,18 @@
+{
+  "name": "Atlas Nutrition",
+  "short_name": "Atlas",
+  "description": "A private daily nutrition tracker for calories, protein, carbs, and fat.",
+  "theme_color": "#122c54",
+  "background_color": "#fffaf2",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

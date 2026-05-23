@@ -1,0 +1,1052 @@
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import type { Session } from '@supabase/supabase-js'
+import './App.css'
+import {
+  estimateMealFromText,
+  isUsdaConfigured,
+  type MacroTotals,
+  type ParsedMealItem,
+} from './mealParser'
+import { isSupabaseConfigured, supabase } from './supabase'
+
+type Profile = {
+  caloriesTarget: number
+  proteinTarget: number
+  carbsTarget: number
+  fatTarget: number
+}
+
+type Entry = {
+  id: string
+  entry_date: string
+  name: string
+  serving: string
+  quantity: number
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  note: string
+  source: string
+  created_at: string
+}
+
+type HistoryDay = {
+  date: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  entryCount: number
+}
+
+type CustomFood = {
+  id: string
+  name: string
+  serving: string
+  category: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
+const today = new Date().toISOString().slice(0, 10)
+
+const defaultProfile: Profile = {
+  caloriesTarget: 2200,
+  proteinTarget: 160,
+  carbsTarget: 220,
+  fatTarget: 70,
+}
+
+const zeroTotals: MacroTotals = {
+  calories: 0,
+  protein: 0,
+  carbs: 0,
+  fat: 0,
+}
+
+const macroCards: Array<{
+  key: keyof MacroTotals
+  targetKey: keyof Profile
+  label: string
+  unit: string
+  tone: string
+}> = [
+  { key: 'calories', targetKey: 'caloriesTarget', label: 'Calories', unit: 'kcal', tone: 'amber' },
+  { key: 'protein', targetKey: 'proteinTarget', label: 'Protein', unit: 'g', tone: 'mint' },
+  { key: 'carbs', targetKey: 'carbsTarget', label: 'Carbs', unit: 'g', tone: 'sky' },
+  { key: 'fat', targetKey: 'fatTarget', label: 'Fat', unit: 'g', tone: 'rose' },
+]
+
+const formatDateLabel = (value: string) =>
+  new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${value}T12:00:00`))
+
+const formatWhole = (value: number) => Math.round(value)
+
+function App() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [booting, setBooting] = useState(true)
+  const [selectedDate, setSelectedDate] = useState(today)
+  const [profile, setProfile] = useState<Profile>(defaultProfile)
+  const [entries, setEntries] = useState<Entry[]>([])
+  const [historyEntries, setHistoryEntries] = useState<Entry[]>([])
+  const [customFoods, setCustomFoods] = useState<CustomFood[]>([])
+  const [mealText, setMealText] = useState('')
+  const [mealEstimate, setMealEstimate] = useState<{
+    items: ParsedMealItem[]
+    totals: MacroTotals
+  } | null>(null)
+  const [customFoodDraft, setCustomFoodDraft] = useState({
+    name: '',
+    serving: '',
+    category: 'Home Snack',
+    calories: '',
+    protein: '',
+    carbs: '',
+    fat: '',
+  })
+  const [authForm, setAuthForm] = useState({ email: '', password: '' })
+  const [loading, setLoading] = useState({
+    auth: false,
+    app: false,
+    estimate: false,
+    saveTargets: false,
+    saveCustomFood: false,
+  })
+  const [error, setError] = useState<string | null>(null)
+
+  const totals = useMemo(
+    () =>
+      entries.reduce<MacroTotals>(
+        (acc, entry) => ({
+          calories: acc.calories + entry.calories,
+          protein: acc.protein + entry.protein,
+          carbs: acc.carbs + entry.carbs,
+          fat: acc.fat + entry.fat,
+        }),
+        zeroTotals,
+      ),
+    [entries],
+  )
+
+  const history = useMemo<HistoryDay[]>(() => {
+    const map = new Map<string, HistoryDay>()
+
+    for (const entry of historyEntries) {
+      const current = map.get(entry.entry_date) ?? {
+        date: entry.entry_date,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        entryCount: 0,
+      }
+
+      current.calories += entry.calories
+      current.protein += entry.protein
+      current.carbs += entry.carbs
+      current.fat += entry.fat
+      current.entryCount += 1
+      map.set(entry.entry_date, current)
+    }
+
+    return [...map.values()].sort((left, right) => right.date.localeCompare(left.date))
+  }, [historyEntries])
+
+  const recentDays = useMemo(() => {
+    return Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(`${today}T12:00:00`)
+      day.setDate(day.getDate() - index)
+      const key = day.toISOString().slice(0, 10)
+      const match = history.find((item) => item.date === key)
+
+      return {
+        date: key,
+        calories: match?.calories ?? 0,
+        entryCount: match?.entryCount ?? 0,
+      }
+    })
+  }, [history])
+
+  const weeklyAverage = useMemo(() => {
+    const weekDates = Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(`${today}T12:00:00`)
+      day.setDate(day.getDate() - index)
+      return day.toISOString().slice(0, 10)
+    })
+
+    const summary = weekDates.reduce(
+      (acc, date) => {
+        const match = history.find((item) => item.date === date)
+        acc.calories += match?.calories ?? 0
+        acc.protein += match?.protein ?? 0
+        acc.carbs += match?.carbs ?? 0
+        acc.fat += match?.fat ?? 0
+        acc.activeDays += match ? 1 : 0
+        return acc
+      },
+      { calories: 0, protein: 0, carbs: 0, fat: 0, activeDays: 0 },
+    )
+
+    return {
+      calories: summary.calories / 7,
+      protein: summary.protein / 7,
+      carbs: summary.carbs / 7,
+      fat: summary.fat / 7,
+      activeDays: summary.activeDays,
+    }
+  }, [history])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) {
+      setBooting(false)
+      return
+    }
+
+    void supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setBooting(false)
+    })
+
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+    })
+
+    return () => data.subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!session?.user || !supabase) return
+    void bootstrapApp(session.user.id)
+  }, [session, selectedDate])
+
+  const bootstrapApp = async (userId: string) => {
+    setLoading((current) => ({ ...current, app: true }))
+    setError(null)
+
+    try {
+      await ensureProfile(userId)
+      const [profileData, dateEntries, monthlyEntries, savedCustomFoods] = await Promise.all([
+        loadProfile(userId),
+        loadEntries(userId, selectedDate),
+        loadHistoryEntries(userId),
+        loadCustomFoods(userId),
+      ])
+
+      setProfile(profileData)
+      setEntries(dateEntries)
+      setHistoryEntries(monthlyEntries)
+      setCustomFoods(savedCustomFoods)
+    } catch (bootstrapError) {
+      setError(
+        bootstrapError instanceof Error ? bootstrapError.message : 'Failed to load the app',
+      )
+    } finally {
+      setLoading((current) => ({ ...current, app: false }))
+    }
+  }
+
+  const ensureProfile = async (userId: string) => {
+    if (!supabase) return
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!data) {
+      const { error: insertError } = await supabase.from('profiles').insert({
+        user_id: userId,
+        calories_target: defaultProfile.caloriesTarget,
+        protein_target: defaultProfile.proteinTarget,
+        carbs_target: defaultProfile.carbsTarget,
+        fat_target: defaultProfile.fatTarget,
+      })
+
+      if (insertError) throw insertError
+    }
+  }
+
+  const loadProfile = async (userId: string) => {
+    if (!supabase) return defaultProfile
+
+    const { data, error: queryError } = await supabase
+      .from('profiles')
+      .select('calories_target, protein_target, carbs_target, fat_target')
+      .eq('user_id', userId)
+      .single()
+
+    if (queryError) throw queryError
+
+    return {
+      caloriesTarget: data.calories_target,
+      proteinTarget: data.protein_target,
+      carbsTarget: data.carbs_target,
+      fatTarget: data.fat_target,
+    }
+  }
+
+  const loadEntries = async (userId: string, date: string) => {
+    if (!supabase) return []
+
+    const { data, error: queryError } = await supabase
+      .from('food_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('entry_date', date)
+      .order('created_at', { ascending: false })
+
+    if (queryError) throw queryError
+    return data as Entry[]
+  }
+
+  const loadHistoryEntries = async (userId: string) => {
+    if (!supabase) return []
+
+    const startDate = new Date(`${today}T12:00:00`)
+    startDate.setDate(startDate.getDate() - 29)
+
+    const { data, error: queryError } = await supabase
+      .from('food_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('entry_date', startDate.toISOString().slice(0, 10))
+      .lte('entry_date', today)
+      .order('entry_date', { ascending: false })
+
+    if (queryError) throw queryError
+    return data as Entry[]
+  }
+
+  const loadCustomFoods = async (userId: string) => {
+    if (!supabase) return []
+
+    const { data, error: queryError } = await supabase
+      .from('custom_foods')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+
+    if (queryError) throw queryError
+    return data as CustomFood[]
+  }
+
+  const refreshData = async () => {
+    if (!session?.user) return
+    await bootstrapApp(session.user.id)
+  }
+
+  const handleSignIn = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+
+    setLoading((current) => ({ ...current, auth: true }))
+    setError(null)
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: authForm.email,
+      password: authForm.password,
+    })
+
+    if (authError) {
+      setError(authError.message)
+    }
+
+    setLoading((current) => ({ ...current, auth: false }))
+  }
+
+  const handleSignOut = async () => {
+    if (!supabase) return
+    await supabase.auth.signOut()
+  }
+
+  const updateTarget = async (key: keyof Profile, event: ChangeEvent<HTMLInputElement>) => {
+    if (!supabase || !session?.user) return
+
+    const nextValue = Number(event.target.value) || 0
+    const nextProfile = { ...profile, [key]: nextValue }
+    setProfile(nextProfile)
+    setLoading((current) => ({ ...current, saveTargets: true }))
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        calories_target: nextProfile.caloriesTarget,
+        protein_target: nextProfile.proteinTarget,
+        carbs_target: nextProfile.carbsTarget,
+        fat_target: nextProfile.fatTarget,
+      })
+      .eq('user_id', session.user.id)
+
+    if (updateError) {
+      setError(updateError.message)
+    }
+
+    setLoading((current) => ({ ...current, saveTargets: false }))
+  }
+
+  const estimateMeal = async () => {
+    if (!mealText.trim()) return
+    setLoading((current) => ({ ...current, estimate: true }))
+    setError(null)
+
+    try {
+      const data = await estimateMealFromText(mealText)
+      setMealEstimate(data)
+    } catch (estimateError) {
+      setError(
+        estimateError instanceof Error ? estimateError.message : 'Failed to estimate meal',
+      )
+    } finally {
+      setLoading((current) => ({ ...current, estimate: false }))
+    }
+  }
+
+  const saveEstimate = async () => {
+    if (!supabase || !session?.user || !mealEstimate?.items.length) return
+
+    const payload = mealEstimate.items.map((item) => ({
+      user_id: session.user.id,
+      entry_date: selectedDate,
+      name: item.match.name,
+      serving: item.match.serving,
+      quantity: item.quantity,
+      calories: item.macros.calories,
+      protein: item.macros.protein,
+      carbs: item.macros.carbs,
+      fat: item.macros.fat,
+      note: `${item.label} | ${item.servingHint}`,
+      source: `USDA ${item.match.dataType}`,
+      source_ref: item.match.id,
+    }))
+
+    const { error: insertError } = await supabase.from('food_entries').insert(payload)
+    if (insertError) {
+      setError(insertError.message)
+      return
+    }
+
+    setMealEstimate(null)
+    setMealText('')
+    await refreshData()
+  }
+
+  const removeEntry = async (entryId: string) => {
+    if (!supabase || !session?.user) return
+
+    const { error: deleteError } = await supabase
+      .from('food_entries')
+      .delete()
+      .eq('user_id', session.user.id)
+      .eq('id', entryId)
+
+    if (deleteError) {
+      setError(deleteError.message)
+      return
+    }
+
+    await refreshData()
+  }
+
+  const addCustomFood = async () => {
+    if (!supabase || !session?.user) return
+    setLoading((current) => ({ ...current, saveCustomFood: true }))
+
+    const payload = {
+      user_id: session.user.id,
+      name: customFoodDraft.name.trim(),
+      serving: customFoodDraft.serving.trim(),
+      category: customFoodDraft.category.trim() || 'Homemade',
+      calories: Number(customFoodDraft.calories) || 0,
+      protein: Number(customFoodDraft.protein) || 0,
+      carbs: Number(customFoodDraft.carbs) || 0,
+      fat: Number(customFoodDraft.fat) || 0,
+    }
+
+    if (!payload.name || !payload.serving) {
+      setError('Custom foods need a name and serving description')
+      setLoading((current) => ({ ...current, saveCustomFood: false }))
+      return
+    }
+
+    const { error: insertError } = await supabase.from('custom_foods').insert(payload)
+    if (insertError) {
+      setError(insertError.message)
+      setLoading((current) => ({ ...current, saveCustomFood: false }))
+      return
+    }
+
+    setCustomFoodDraft({
+      name: '',
+      serving: '',
+      category: 'Home Snack',
+      calories: '',
+      protein: '',
+      carbs: '',
+      fat: '',
+    })
+
+    await refreshData()
+    setLoading((current) => ({ ...current, saveCustomFood: false }))
+  }
+
+  const addCustomFoodEntry = async (food: CustomFood) => {
+    if (!supabase || !session?.user) return
+
+    const { error: insertError } = await supabase.from('food_entries').insert({
+      user_id: session.user.id,
+      entry_date: selectedDate,
+      name: food.name,
+      serving: food.serving,
+      quantity: 1,
+      calories: food.calories,
+      protein: food.protein,
+      carbs: food.carbs,
+      fat: food.fat,
+      note: '',
+      source: `Custom ${food.category}`,
+      source_ref: food.id,
+    })
+
+    if (insertError) {
+      setError(insertError.message)
+      return
+    }
+
+    await refreshData()
+  }
+
+  if (!isSupabaseConfigured) {
+    return (
+      <main className="app-shell">
+        <section className="hero-panel">
+          <div className="hero-copy">
+            <p className="eyebrow">Atlas Nutrition</p>
+            <h1>Production setup is waiting on Supabase.</h1>
+            <p className="hero-text">
+              The free deployable version uses Supabase for persistent storage and auth.
+              Add your Supabase project URL and anon key in the environment variables first.
+            </p>
+          </div>
+        </section>
+
+        <section className="card setup-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Missing Config</p>
+              <h2>Required environment variables</h2>
+            </div>
+          </div>
+
+          <div className="code-card">
+            <pre>{`VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+VITE_USDA_API_KEY=your_data_gov_key_here`}</pre>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (booting) {
+    return (
+      <main className="app-shell">
+        <section className="hero-panel">
+          <div className="hero-copy">
+            <p className="eyebrow">Atlas Nutrition</p>
+            <h1>Starting your nutrition dashboard.</h1>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (!session) {
+    return (
+      <main className="app-shell">
+        <section className="hero-panel">
+          <div className="hero-copy">
+            <p className="eyebrow">Atlas Nutrition</p>
+            <h1>Private nutrition tracking, ready for the web.</h1>
+            <p className="hero-text">
+              Sign in with the account you create in Supabase. After that, all logs live in
+              the cloud and work from anywhere.
+            </p>
+          </div>
+        </section>
+
+        <section className="card auth-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Sign In</p>
+              <h2>Enter your email and password</h2>
+            </div>
+            <span className="section-chip">{isUsdaConfigured ? 'USDA ready' : 'USDA missing'}</span>
+          </div>
+
+          {error ? <section className="error-banner">{error}</section> : null}
+
+          <form className="auth-form" onSubmit={handleSignIn}>
+            <label>
+              Email
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) =>
+                  setAuthForm((current) => ({ ...current, password: event.target.value }))
+                }
+                required
+              />
+            </label>
+            <button type="submit" className="primary-button cool">
+              {loading.auth ? 'Signing in...' : 'Sign in'}
+            </button>
+          </form>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <p className="eyebrow">Atlas Nutrition</p>
+          <h1>Log the meal. Keep the data forever.</h1>
+          <p className="hero-text">
+            A production-ready personal tracker with cloud persistence, private sign-in,
+            and a parser-first meal flow.
+          </p>
+        </div>
+
+        <div className="hero-ribbon" aria-hidden="true">
+          <span>Supabase</span>
+          <span>USDA</span>
+          <span>PWA</span>
+          <span>Vercel-ready</span>
+        </div>
+
+        <div className="hero-stats">
+          <div className="hero-stat sunset">
+            <span>Selected day</span>
+            <strong>{formatDateLabel(selectedDate)}</strong>
+          </div>
+          <div className="hero-stat aurora">
+            <span>Entries saved</span>
+            <strong>{entries.length}</strong>
+          </div>
+          <div className="hero-stat prism">
+            <span>Signed in as</span>
+            <strong>{session.user.email}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="card spotlight-card">
+        <div className="spotlight-header">
+          <div>
+            <p className="section-label">Cloud Status</p>
+            <h2>Connected and persistent</h2>
+          </div>
+          <div className="top-actions">
+            <label className="date-picker">
+              <span>Journal day</span>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+              />
+            </label>
+            <button type="button" className="ghost-button" onClick={handleSignOut}>
+              Sign out
+            </button>
+          </div>
+        </div>
+
+        <div className="readiness-strip">
+          <div className="readiness-pill">
+            <span>Database</span>
+            <strong>Supabase</strong>
+          </div>
+          <div className="readiness-pill">
+            <span>Meal parser</span>
+            <strong>Free local parser</strong>
+          </div>
+          <div className="readiness-pill">
+            <span>Food source</span>
+            <strong>{isUsdaConfigured ? 'USDA connected' : 'USDA missing'}</strong>
+          </div>
+        </div>
+
+        <div className="recent-days">
+          {recentDays.map((day) => (
+            <button
+              key={day.date}
+              type="button"
+              className={selectedDate === day.date ? 'day-pill active' : 'day-pill'}
+              onClick={() => setSelectedDate(day.date)}
+            >
+              <span>{formatDateLabel(day.date)}</span>
+              <strong>{formatWhole(day.calories)} kcal</strong>
+              <small>{day.entryCount} entries</small>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="macro-grid">
+        {macroCards.map((macro) => {
+          const total = totals[macro.key]
+          const target = profile[macro.targetKey]
+          const progress = target > 0 ? Math.min((total / target) * 100, 100) : 0
+
+          return (
+            <article key={macro.key} className={`card macro-card ${macro.tone}`}>
+              <p className="section-label">{macro.label}</p>
+              <div className="macro-value">
+                <strong>{formatWhole(total)}</strong>
+                <span>{macro.unit}</span>
+              </div>
+              <div className="meter">
+                <div className="meter-fill" style={{ width: `${progress}%` }} />
+              </div>
+              <p className="meter-copy">
+                Goal {formatWhole(target)} {macro.unit}
+              </p>
+            </article>
+          )
+        })}
+      </section>
+
+      {error ? <section className="error-banner">{error}</section> : null}
+
+      <section className="builder-grid single">
+        <article className="card vivid-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Smart Meal Parser</p>
+              <h2>Type what you ate naturally</h2>
+            </div>
+            <span className="section-chip">{loading.estimate ? 'Estimating...' : 'Ready'}</span>
+          </div>
+
+          <textarea
+            className="meal-input"
+            value={mealText}
+            onChange={(event) => setMealText(event.target.value)}
+            placeholder="Example: 2 eggs, 1 banana, and 1 cup Greek yogurt"
+          />
+
+          <div className="button-row">
+            <button type="button" className="primary-button hot" onClick={estimateMeal}>
+              Estimate this meal
+            </button>
+            {mealEstimate ? (
+              <button type="button" className="primary-button cool" onClick={saveEstimate}>
+                Save estimate to {formatDateLabel(selectedDate)}
+              </button>
+            ) : null}
+          </div>
+
+          {mealEstimate ? (
+            <div className="estimate-card">
+              <div className="estimate-total">
+                <strong>{formatWhole(mealEstimate.totals.calories)} kcal</strong>
+                <span>
+                  {formatWhole(mealEstimate.totals.protein)}P |{' '}
+                  {formatWhole(mealEstimate.totals.carbs)}C |{' '}
+                  {formatWhole(mealEstimate.totals.fat)}F
+                </span>
+              </div>
+
+              <div className="estimate-list">
+                {mealEstimate.items.map((item) => (
+                  <div key={`${item.label}-${item.match.id}`} className="estimate-item">
+                    <div>
+                      <strong>{item.label}</strong>
+                      <span>
+                        Matched to {item.match.name} | {item.quantity} x {item.match.serving}
+                      </span>
+                    </div>
+                    <small>
+                      {formatWhole(item.macros.calories)} kcal | {formatWhole(item.macros.protein)}P
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="callout-panel gradient-lilac">
+              <p>
+                The parser is the main input now. USDA stays in the background only as the
+                nutrition source.
+              </p>
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section className="dashboard-grid">
+        <article className="card glass-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Daily Log</p>
+              <h2>Saved in the cloud</h2>
+            </div>
+            <span className="section-chip strong">{loading.app ? 'Loading...' : 'Supabase'}</span>
+          </div>
+
+          <div className="log-list">
+            {entries.length === 0 ? (
+              <div className="empty-state">
+                No entries for this day yet. Once you save a meal, it is stored in the cloud.
+              </div>
+            ) : (
+              entries.map((entry) => (
+                <div key={entry.id} className="log-item">
+                  <div className="log-main">
+                    <div>
+                      <strong>{entry.name}</strong>
+                      <span>
+                        {entry.quantity} x {entry.serving}
+                      </span>
+                      <p>{entry.source}</p>
+                    </div>
+                    <button type="button" className="ghost-button" onClick={() => removeEntry(entry.id)}>
+                      Remove
+                    </button>
+                  </div>
+                  <div className="log-macros">
+                    <span>{formatWhole(entry.calories)} kcal</span>
+                    <span>{formatWhole(entry.protein)}P</span>
+                    <span>{formatWhole(entry.carbs)}C</span>
+                    <span>{formatWhole(entry.fat)}F</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+
+        <article className="card prismatic-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Monthly View</p>
+              <h2>Last 30 days</h2>
+            </div>
+          </div>
+
+          <div className="history-list">
+            {history.length === 0 ? (
+              <div className="empty-state">Your 30-day trend appears here once entries are saved.</div>
+            ) : (
+              history.map((day) => (
+                <div key={day.date} className="history-bar">
+                  <div className="history-text">
+                    <strong>{formatDateLabel(day.date)}</strong>
+                    <span>{day.entryCount} entries</span>
+                  </div>
+                  <div className="history-meter">
+                    <div
+                      className="history-fill"
+                      style={{
+                        width: `${Math.min((day.calories / Math.max(profile.caloriesTarget, 1)) * 100, 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <small>{formatWhole(day.calories)} kcal</small>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="weekly-average-grid">
+        <article className="card weekly-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Weekly Average</p>
+              <h2>Trailing 7-day daily average</h2>
+            </div>
+            <span className="section-chip">
+              {weeklyAverage.activeDays} active day{weeklyAverage.activeDays === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div className="weekly-stats">
+            <div className="weekly-stat amber">
+              <span>Calories</span>
+              <strong>{formatWhole(weeklyAverage.calories)}</strong>
+              <small>kcal per day</small>
+            </div>
+            <div className="weekly-stat mint">
+              <span>Protein</span>
+              <strong>{formatWhole(weeklyAverage.protein)}</strong>
+              <small>g per day</small>
+            </div>
+            <div className="weekly-stat sky">
+              <span>Carbs</span>
+              <strong>{formatWhole(weeklyAverage.carbs)}</strong>
+              <small>g per day</small>
+            </div>
+            <div className="weekly-stat rose">
+              <span>Fat</span>
+              <strong>{formatWhole(weeklyAverage.fat)}</strong>
+              <small>g per day</small>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section className="bottom-grid">
+        <article className="card candy-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Custom Foods</p>
+              <h2>Keep homemade staples too</h2>
+            </div>
+          </div>
+
+          <div className="custom-grid">
+            <label>
+              Food name
+              <input
+                type="text"
+                value={customFoodDraft.name}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, name: event.target.value }))}
+              />
+            </label>
+            <label>
+              Serving
+              <input
+                type="text"
+                value={customFoodDraft.serving}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, serving: event.target.value }))}
+              />
+            </label>
+            <label>
+              Category
+              <input
+                type="text"
+                value={customFoodDraft.category}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, category: event.target.value }))}
+              />
+            </label>
+            <label>
+              Calories
+              <input
+                type="number"
+                value={customFoodDraft.calories}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, calories: event.target.value }))}
+              />
+            </label>
+            <label>
+              Protein
+              <input
+                type="number"
+                value={customFoodDraft.protein}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, protein: event.target.value }))}
+              />
+            </label>
+            <label>
+              Carbs
+              <input
+                type="number"
+                value={customFoodDraft.carbs}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, carbs: event.target.value }))}
+              />
+            </label>
+            <label>
+              Fat
+              <input
+                type="number"
+                value={customFoodDraft.fat}
+                onChange={(event) => setCustomFoodDraft((current) => ({ ...current, fat: event.target.value }))}
+              />
+            </label>
+          </div>
+
+          <button type="button" className="primary-button berry" onClick={addCustomFood}>
+            {loading.saveCustomFood ? 'Saving...' : 'Save custom food'}
+          </button>
+
+          <div className="custom-list">
+            {customFoods.length > 0 ? (
+              customFoods.map((food) => (
+                <div key={food.id} className="custom-item">
+                  <div>
+                    <strong>{food.name}</strong>
+                    <span>
+                      {food.category} | {food.serving}
+                    </span>
+                  </div>
+                  <button type="button" className="ghost-button" onClick={() => addCustomFoodEntry(food)}>
+                    Add to day
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state small">No custom foods saved yet.</div>
+            )}
+          </div>
+        </article>
+
+        <article className="card settings-card stack">
+          <div className="section-head">
+            <div>
+              <p className="section-label">Macro Targets</p>
+              <h2>Stored in your profile</h2>
+            </div>
+            <span className="section-chip">{loading.saveTargets ? 'Saving...' : 'Auto-saved'}</span>
+          </div>
+
+          <div className="targets-grid">
+            <label>
+              Calories
+              <input type="number" value={profile.caloriesTarget} onChange={(event) => void updateTarget('caloriesTarget', event)} />
+            </label>
+            <label>
+              Protein
+              <input type="number" value={profile.proteinTarget} onChange={(event) => void updateTarget('proteinTarget', event)} />
+            </label>
+            <label>
+              Carbs
+              <input type="number" value={profile.carbsTarget} onChange={(event) => void updateTarget('carbsTarget', event)} />
+            </label>
+            <label>
+              Fat
+              <input type="number" value={profile.fatTarget} onChange={(event) => void updateTarget('fatTarget', event)} />
+            </label>
+          </div>
+
+          <div className="callout-panel gradient-gold">
+            <p>Your food history now lives in Supabase instead of device-only local storage.</p>
+          </div>
+
+          <div className="callout-panel gradient-blue">
+            <p>This architecture is what makes a free web deployment realistic and persistent.</p>
+          </div>
+        </article>
+      </section>
+    </main>
+  )
+}
+
+export default App
